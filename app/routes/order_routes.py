@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required
 from app import db, logger
 from app.models import Order, Client, Product
 
 bp = Blueprint('order_routes', __name__, url_prefix='/orders')
 
 @bp.route('/', methods=['GET'])
+@jwt_required()
 def get_orders():
     """
     Get all orders
@@ -47,6 +49,7 @@ def get_orders():
     } for o in orders]), 200
 
 @bp.route('/', methods=['POST'])
+@jwt_required()
 def create_order():
     """
     Create a new order
@@ -118,6 +121,7 @@ def create_order():
     return jsonify({'message': 'Order created successfully', 'id': order.id}), 201
 
 @bp.route('/<int:order_id>/', methods=['DELETE'])
+@jwt_required()
 def delete_order(order_id):
     """
     Delete an order

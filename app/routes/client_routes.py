@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db, logger
 from app.models import Client
 
 bp = Blueprint('client_routes', __name__, url_prefix='/clients')
 
 @bp.route('/', methods=['GET'])
+@jwt_required()
 def get_clients():
     """
     Get all clients
@@ -35,6 +37,7 @@ def get_clients():
     return jsonify([{'id': c.id, 'name': c.name, 'email': c.email} for c in clients]), 200
 
 @bp.route('/', methods=['POST'])
+@jwt_required()
 def create_client():
     """
     Create a new client

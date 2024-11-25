@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required
 from app import db, logger
 from app.models import Product
 
 bp = Blueprint('product_routes', __name__, url_prefix='/products')
 
 @bp.route('/', methods=['GET'])
+@jwt_required()
 def get_products():
     """
     Get all products
@@ -47,6 +49,7 @@ def get_products():
     } for p in products]), 200
 
 @bp.route('/', methods=['POST'])
+@jwt_required()
 def create_product():
     """
     Create a new product
@@ -99,6 +102,7 @@ def create_product():
     return jsonify({'message': 'Product created successfully', 'id': product.id}), 201
 
 @bp.route('/<int:product_id>/', methods=['PUT'])
+@jwt_required()
 def update_product(product_id):
     """
     Update a product
@@ -151,6 +155,7 @@ def update_product(product_id):
     return jsonify({'message': 'Product updated successfully'}), 200
 
 @bp.route('/<int:product_id>/', methods=['DELETE'])
+@jwt_required()
 def delete_product(product_id):
     """
     Delete a product
