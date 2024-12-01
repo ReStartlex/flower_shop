@@ -1,16 +1,19 @@
-from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask import Blueprint, request, jsonify, current_app
+from flask_jwt_extended import jwt_required
 from app import db, logger
 from app.models import Client
+from app.utils.auth import admin_required  # Импортируем декоратор
+import json
 
 bp = Blueprint('client_routes', __name__, url_prefix='/clients')
 
 @bp.route('/', methods=['GET'])
 @jwt_required()
+@admin_required  # Добавлен декоратор для проверки админских прав
 def get_clients():
     """
     Get all clients
-    ---
+    --- 
     tags:
       - Clients
     responses:
@@ -31,17 +34,36 @@ def get_clients():
                 type: string
                 example: "dlyauchebitpgy@gmail.com"
     """
-    logger.info("Fetching all clients.")
-    clients = Client.query.all()
-    logger.info(f"Found {len(clients)} clients.")
-    return jsonify([{'id': c.id, 'name': c.name, 'email': c.email} for c in clients]), 200
+    redis_client = current_app.redis_client
+
+    cached_clients = redis_client.get('clients')
+
+    if cached_clients:
+        # Если данные есть в кэше, возвращаем их
+        logger.info("Returning clients from cache.")
+        clients = json.loads(cached_clients)  # Десериализуем JSON из кэша
+    else:
+        # Если данных нет в кэше, получаем из БД и сохраняем в кэш
+        logger.info("Fetching clients from database.")
+        clients = [{
+            'id': c.id,
+            'name': c.name,
+            'email': c.email
+        } for c in Client.query.all()]
+
+        # Сохраняем в кэш с TTL 60 секунд (сериализация в JSON)
+        redis_client.set('clients', json.dumps(clients), ex=60)
+        logger.info("Clients data cached.")
+
+    return jsonify(clients), 200
 
 @bp.route('/', methods=['POST'])
 @jwt_required()
+@admin_required  # Только администратор может создавать клиентов
 def create_client():
     """
     Create a new client
-    ---
+    --- 
     tags:
       - Clients
     parameters:
@@ -75,8 +97,27 @@ def create_client():
     """
     data = request.get_json()
     logger.info(f"Received client creation request: {data}")
-    client = Client(name=data['name'], email=data['email'], phone=data.get('phone'))
-    db.session.add(client)
-    db.session.commit()
-    logger.info(f"Client created with ID {client.id}")
-    return jsonify({'message': 'Client created successfully', 'id': client.id}), 201
+
+    # Валидация входных данных
+    if not data.get('name') or not data.get('email'):
+        logger.error("Missing required fields: name or email.")
+        return jsonify({'error': 'Name and email are required'}), 400
+
+    try:
+        # Создание нового клиента
+        client = Client(name=data['name'], email=data['email'], phone=data.get('phone'))
+        db.session.add(client)
+        db.session.commit()
+        logger.info(f"Client created with ID {client.id}")
+
+        
+        redis_client = current_app.redis_client
+        # Сбрасываем кэш, так как данные изменены
+        redis_client.delete('clients')
+        logger.info("Cleared clients cache.")
+
+        return jsonify({'message': 'Client created successfully', 'id': client.id}), 201
+
+    except Exception as e:
+        logger.error(f"Error while creating client: {e}")
+        return jsonify({'error': 'Client creation failed'}), 500

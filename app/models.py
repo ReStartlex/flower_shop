@@ -1,16 +1,35 @@
 from app import db
 from datetime import datetime
+from enum import Enum
+
+# Определение Enum для ролей
+class RoleEnum(Enum):
+    ADMIN = 'admin'
+    CLIENT = 'client'
 
 class Client(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    phone = db.Column(db.String(15), nullable=True)
+    phone = db.Column(db.String(15), unique=True, nullable=True)  # Сделано уникальным
     password = db.Column(db.String(128), nullable=False)  # Поле для хранения пароля
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    role = db.Column(db.Enum(RoleEnum), default=RoleEnum.CLIENT)  # Роль пользователя через Enum
 
     def __repr__(self):
         return f'<Client {self.name}>'
+
+    def set_role(self, role):
+        """Метод для изменения роли пользователя"""
+        if isinstance(role, RoleEnum):
+            self.role = role
+        else:
+            raise ValueError(f"Invalid role: {role}")
+        db.session.commit()
+
+    def get_role(self):
+        """Метод для получения роли пользователя"""
+        return self.role
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)

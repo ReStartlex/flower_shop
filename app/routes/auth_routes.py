@@ -1,8 +1,8 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import create_access_token
 from app import db, logger
-from app.models import Client
+from app.models import Client, RoleEnum  # Используем RoleEnum
 
 bp = Blueprint('auth_routes', __name__, url_prefix='/auth')
 
@@ -10,7 +10,7 @@ bp = Blueprint('auth_routes', __name__, url_prefix='/auth')
 def register():
     """
     Register a new user
-    ---
+    --- 
     tags:
       - Authentication
     parameters:
@@ -37,12 +37,10 @@ def register():
     """
     data = request.get_json()
     
-    
     if not data.get('name') or not data.get('email') or not data.get('password'):
         logger.error("Missing required registration fields.")
         return jsonify({'error': 'Name, email, and password are required'}), 400
 
-    
     if Client.query.filter_by(email=data['email']).first():
         logger.error(f"Registration failed: email {data['email']} already exists.")
         return jsonify({'error': 'Email already exists'}), 400
@@ -50,10 +48,12 @@ def register():
     hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256')
 
     try:
+        # Добавление роли 'user' при регистрации
         new_client = Client(
             name=data['name'],
             email=data['email'],
             phone=data.get('phone'),
+            role=RoleEnum.USER  # Используем RoleEnum для роли
         )
         new_client.password = hashed_password
         db.session.add(new_client)
@@ -68,7 +68,7 @@ def register():
 def login():
     """
     User login
-    ---
+    --- 
     tags:
       - Authentication
     parameters:
@@ -92,23 +92,37 @@ def login():
     """
     data = request.get_json()
 
-    
     if not data.get('email') or not data.get('password'):
         logger.error("Missing email or password in login request.")
         return jsonify({'error': 'Email and password are required'}), 400
 
+    # Ограничение количества попыток входа через Redis
+    redis_client = current_app.redis_client
+    attempts_key = f"login_attempts:{data['email']}"
+    attempts = redis_client.get(attempts_key)
+
+    if attempts and int(attempts) >= 5:
+        logger.warning(f"Too many login attempts for {data['email']}.")
+        return jsonify({'error': 'Too many login attempts. Please try again later.'}), 429
+
     client = Client.query.filter_by(email=data['email']).first()
 
-    
     if not client or not check_password_hash(client.password, data['password']):
+        # Увеличение счётчика попыток при ошибке
+        redis_client.incr(attempts_key)
+        redis_client.expire(attempts_key, 300)  # Срок действия ключа: 5 минут
         logger.warning(f"Invalid login attempt for email {data['email']}.")
         return jsonify({'error': 'Invalid credentials'}), 401
 
-   
     try:
+        # Успешный вход: сброс счётчика попыток
+        redis_client.delete(attempts_key)
+
+        # Генерация JWT токена с ролью
         access_token = create_access_token(identity=client.id, additional_claims={
             'name': client.name,
-            'email': client.email
+            'email': client.email,
+            'role': client.role  # Роль клиента добавляем в claims
         })
         logger.info(f"User {data['email']} logged in successfully.")
         return jsonify({'access_token': access_token}), 200
